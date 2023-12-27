@@ -7,6 +7,7 @@ import comfy
 import folder_paths
 import base64
 from io import BytesIO
+import json
 
 class LoadImagesFromDirBatch:
     @classmethod
@@ -180,6 +181,55 @@ class LoadImageInspire:
             mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
         return (image, mask.unsqueeze(0))
 
+class LoadImagesFromJson:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "imgsjson": ("STRING",{"multiline": False, "default": "[]"}),
+            },
+            "optional": {
+                "image_load_cap": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "start_index": ("INT", {"default": 0, "min": 0, "step": 1}),
+            }
+        }
+        
+    RETURN_TYPES = ("IMAGE", "MASK")
+    OUTPUT_IS_LIST = (True, True)
+    
+    FUNCTION = "load_images_from_json"
+    CATEGORY = "image/text"
+
+    def load_images_from_json(self, imgsjson, image_load_cap, start_index):
+        #print(f'{imgsjson}')
+        imgs=json.loads(imgsjson)
+        images = []
+        masks = []
+        
+        limit_images = False
+        if image_load_cap > 0:
+            limit_images = True
+        image_count = 0
+
+        for img in imgs:
+            image_data = base64.b64decode(img.split(",")[1])
+            i = Image.open(BytesIO(image_data))
+            #i = ImageOps.exif_transpose(i)
+            image = i.convert("RGB")
+            image = np.array(image).astype(np.float32) / 255.0
+            image = torch.from_numpy(image)[None,]
+            if 'A' in i.getbands():
+                mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+                mask = 1. - torch.from_numpy(mask)
+            else:
+                mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
+
+            images.append(image)
+            masks.append(mask)
+            image_count += 1
+            
+        return images, masks
+
 
 class ChangeImageBatchSize:
     @classmethod
@@ -216,6 +266,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadImageListFromDir //Inspire": LoadImagesFromDirList,
     "LoadImage //Inspire": LoadImageInspire,
     "ChangeImageBatchSize //Inspire": ChangeImageBatchSize,
+    "Load Images From Json": LoadImagesFromJson,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImagesFromDir //Inspire": "Load Image Batch From Dir (Inspire)",
